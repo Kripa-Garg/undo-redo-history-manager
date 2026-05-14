@@ -1,0 +1,1105 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Undo / Redo History Manager</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Syne:wght@400;600;700;800&display=swap"
+        rel="stylesheet" />
+    <style>
+        /* ── Reset & Base ───────────────────────────────────────────── */
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        :root {
+            --bg: #0d0e12;
+            --surface: #13151c;
+            --surface2: #1a1d28;
+            --surface3: #21253a;
+            --border: rgba(255, 255, 255, 0.07);
+            --border-em: rgba(255, 255, 255, 0.14);
+            --purple: #8b7cf6;
+            --purple-dim: #3d3571;
+            --teal: #2dd4bf;
+            --teal-dim: #134e4a;
+            --amber: #fbbf24;
+            --amber-dim: #451a03;
+            --red: #f87171;
+            --text: #e8eaf0;
+            --text-muted: #7b82a0;
+            --text-dim: #4a5070;
+            --mono: 'JetBrains Mono', monospace;
+            --sans: 'Syne', sans-serif;
+            --radius: 10px;
+            --radius-lg: 16px;
+        }
+
+        html,
+        body {
+            height: 100%;
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--sans);
+            font-size: 15px;
+            line-height: 1.6;
+        }
+
+        /* ── Layout ─────────────────────────────────────────────────── */
+        .shell {
+            min-height: 100vh;
+            display: grid;
+            grid-template-rows: auto 1fr auto;
+            grid-template-columns: 1fr;
+        }
+
+        header {
+            padding: 18px 28px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            background: var(--surface);
+        }
+
+        .logo-mark {
+            width: 34px;
+            height: 34px;
+            border-radius: 8px;
+            background: var(--purple);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            flex-shrink: 0;
+        }
+
+        header h1 {
+            font-family: var(--sans);
+            font-weight: 700;
+            font-size: 17px;
+            letter-spacing: -0.01em;
+        }
+
+        header .sub {
+            font-size: 12px;
+            color: var(--text-muted);
+            font-family: var(--mono);
+            margin-left: auto;
+        }
+
+        .main {
+            display: grid;
+            grid-template-columns: 1fr 320px;
+            gap: 0;
+            overflow: hidden;
+        }
+
+        /* ── Editor Column ───────────────────────────────────────────── */
+        .editor-col {
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid var(--border);
+        }
+
+        .toolbar {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 16px;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 13px;
+            border: 1px solid var(--border-em);
+            border-radius: 7px;
+            background: transparent;
+            color: var(--text);
+            font-family: var(--mono);
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.13s, border-color 0.13s, transform 0.1s, color 0.13s;
+            white-space: nowrap;
+            user-select: none;
+        }
+
+        .btn svg {
+            width: 14px;
+            height: 14px;
+            stroke: currentColor;
+            fill: none;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            flex-shrink: 0;
+        }
+
+        .btn:hover {
+            background: var(--surface3);
+            border-color: rgba(255, 255, 255, 0.22);
+        }
+
+        .btn:active {
+            transform: scale(0.96);
+        }
+
+        .btn:disabled {
+            opacity: 0.28;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-undo {
+            color: var(--purple);
+            border-color: var(--purple-dim);
+        }
+
+        .btn-undo:hover {
+            background: rgba(139, 124, 246, 0.12);
+            border-color: var(--purple);
+        }
+
+        .btn-undo:disabled {
+            color: var(--text-dim);
+            border-color: var(--border);
+        }
+
+        .btn-redo {
+            color: var(--teal);
+            border-color: var(--teal-dim);
+        }
+
+        .btn-redo:hover {
+            background: rgba(45, 212, 191, 0.1);
+            border-color: var(--teal);
+        }
+
+        .btn-redo:disabled {
+            color: var(--text-dim);
+            border-color: var(--border);
+        }
+
+        .btn-snapshot {
+            color: var(--amber);
+            border-color: rgba(251, 191, 36, 0.25);
+        }
+
+        .btn-snapshot:hover {
+            background: rgba(251, 191, 36, 0.08);
+            border-color: var(--amber);
+        }
+
+        .btn-clear {
+            color: var(--red);
+            border-color: rgba(248, 113, 113, 0.2);
+        }
+
+        .btn-clear:hover {
+            background: rgba(248, 113, 113, 0.08);
+            border-color: var(--red);
+        }
+
+        .sep {
+            width: 1px;
+            height: 22px;
+            background: var(--border-em);
+            margin: 0 3px;
+        }
+
+        .kbd-hint {
+            margin-left: auto;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .kbd-pill {
+            font-family: var(--mono);
+            font-size: 10px;
+            color: var(--text-dim);
+            display: flex;
+            gap: 4px;
+            align-items: center;
+        }
+
+        .kbd {
+            background: var(--surface3);
+            border: 1px solid var(--border-em);
+            border-radius: 4px;
+            padding: 1px 5px;
+            font-size: 10px;
+            font-family: var(--mono);
+            color: var(--text-muted);
+        }
+
+        .editor-wrap {
+            flex: 1;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .line-nums {
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 44px;
+            padding: 20px 0;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 0;
+            pointer-events: none;
+            overflow: hidden;
+            border-right: 1px solid var(--border);
+        }
+
+        .line-num {
+            font-family: var(--mono);
+            font-size: 12px;
+            color: var(--text-dim);
+            line-height: 1.7;
+            padding-right: 10px;
+            height: 25.5px;
+            display: flex;
+            align-items: center;
+        }
+
+        textarea {
+            flex: 1;
+            padding: 20px 20px 20px 62px;
+            background: transparent;
+            border: none;
+            outline: none;
+            resize: none;
+            color: var(--text);
+            font-family: var(--mono);
+            font-size: 14px;
+            line-height: 1.82;
+            caret-color: var(--purple);
+            min-height: 360px;
+        }
+
+        textarea::selection {
+            background: rgba(139, 124, 246, 0.28);
+        }
+
+        textarea::placeholder {
+            color: var(--text-dim);
+        }
+
+        .status-bar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 7px 16px;
+            border-top: 1px solid var(--border);
+            background: var(--surface);
+            font-family: var(--mono);
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .status-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--text-dim);
+            transition: background 0.3s;
+            flex-shrink: 0;
+        }
+
+        .status-dot.saved {
+            background: var(--teal);
+            box-shadow: 0 0 6px rgba(45, 212, 191, 0.5);
+        }
+
+        .status-dot.changed {
+            background: var(--amber);
+            box-shadow: 0 0 6px rgba(251, 191, 36, 0.4);
+        }
+
+        .status-msg {
+            transition: color 0.2s;
+        }
+
+        .chars {
+            margin-left: auto;
+            color: var(--text-dim);
+        }
+
+        /* ── Sidebar ─────────────────────────────────────────────────── */
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            background: var(--surface);
+            overflow-y: auto;
+        }
+
+        .pane {
+            border-bottom: 1px solid var(--border);
+        }
+
+        .pane-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 11px 16px;
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .pane-title {
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 7px;
+        }
+
+        .pane-title .dot-color {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .pane-badge {
+            font-family: var(--mono);
+            font-size: 10px;
+            color: var(--text-dim);
+            background: var(--surface3);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 1px 8px;
+        }
+
+        /* Stack list */
+        .stack-list {
+            padding: 8px;
+            max-height: 230px;
+            overflow-y: auto;
+        }
+
+        .stack-list::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .stack-list::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .stack-list::-webkit-scrollbar-thumb {
+            background: var(--surface3);
+            border-radius: 4px;
+        }
+
+        .stack-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 9px;
+            border-radius: 7px;
+            margin-bottom: 2px;
+            transition: background 0.1s;
+            border-left: 2px solid transparent;
+        }
+
+        .stack-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .stack-item.current {
+            background: rgba(139, 124, 246, 0.1);
+            border-left-color: var(--purple);
+        }
+
+        .stack-item.undo-item {
+            background: var(--surface2);
+        }
+
+        .stack-item.redo-item {
+            background: var(--surface2);
+            opacity: 0.5;
+        }
+
+        .stack-item.undo-item:hover {
+            background: var(--surface3);
+            opacity: 1;
+        }
+
+        .stack-item.redo-item:hover {
+            background: var(--surface3);
+            opacity: 0.75;
+        }
+
+        .item-arrow {
+            font-size: 9px;
+            color: var(--text-dim);
+            flex-shrink: 0;
+            width: 10px;
+            text-align: center;
+        }
+
+        .item-preview {
+            font-family: var(--mono);
+            font-size: 11px;
+            color: var(--text-muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            flex: 1;
+        }
+
+        .item-tag {
+            font-size: 10px;
+            font-family: var(--mono);
+            padding: 2px 7px;
+            border-radius: 20px;
+            flex-shrink: 0;
+            font-weight: 500;
+        }
+
+        .tag-current {
+            background: rgba(139, 124, 246, 0.2);
+            color: var(--purple);
+        }
+
+        .tag-undo {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-dim);
+        }
+
+        .tag-redo {
+            background: rgba(45, 212, 191, 0.12);
+            color: var(--teal);
+        }
+
+        .empty-note {
+            padding: 18px;
+            text-align: center;
+            font-family: var(--mono);
+            font-size: 11px;
+            color: var(--text-dim);
+            line-height: 1.6;
+        }
+
+        /* Visualizer */
+        .viz-section {
+            padding: 12px 14px;
+        }
+
+        .viz-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .viz-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .viz-label {
+            font-family: var(--mono);
+            font-size: 10px;
+            color: var(--text-dim);
+            width: 50px;
+            flex-shrink: 0;
+        }
+
+        .viz-track {
+            flex: 1;
+            height: 26px;
+            background: var(--surface2);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            padding: 0 4px;
+            gap: 3px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .viz-block {
+            height: 18px;
+            border-radius: 4px;
+            min-width: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 9px;
+            font-family: var(--mono);
+            font-weight: 600;
+            transition: all 0.2s;
+            flex-shrink: 0;
+            cursor: default;
+        }
+
+        .vb-undo {
+            background: var(--purple-dim);
+            color: var(--purple);
+            border: 1px solid rgba(139, 124, 246, 0.3);
+        }
+
+        .vb-current {
+            background: var(--purple);
+            color: #fff;
+            font-weight: 700;
+            outline: 2px solid rgba(139, 124, 246, 0.5);
+            outline-offset: 1px;
+        }
+
+        .vb-redo {
+            background: var(--teal-dim);
+            color: var(--teal);
+            border: 1px solid rgba(45, 212, 191, 0.3);
+        }
+
+        .viz-empty {
+            font-size: 10px;
+            color: var(--text-dim);
+            font-family: var(--mono);
+        }
+
+        /* Stats */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            padding: 12px;
+        }
+
+        .stat-card {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 11px 12px;
+            text-align: center;
+        }
+
+        .stat-val {
+            font-family: var(--mono);
+            font-size: 22px;
+            font-weight: 600;
+            line-height: 1;
+            margin-bottom: 5px;
+            transition: color 0.2s;
+        }
+
+        .stat-lbl {
+            font-size: 10px;
+            color: var(--text-dim);
+            letter-spacing: 0.04em;
+            font-family: var(--mono);
+        }
+
+        .stat-undo .stat-val {
+            color: var(--purple);
+        }
+
+        .stat-redo .stat-val {
+            color: var(--teal);
+        }
+
+        .stat-snap .stat-val {
+            color: var(--amber);
+        }
+
+        .stat-ops .stat-val {
+            color: var(--text-muted);
+        }
+
+        /* Footer */
+        footer {
+            border-top: 1px solid var(--border);
+            background: var(--surface);
+            padding: 9px 20px;
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            font-family: var(--mono);
+            font-size: 10px;
+            color: var(--text-dim);
+            flex-wrap: wrap;
+        }
+
+        footer .legend {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        footer .lswatch {
+            width: 10px;
+            height: 10px;
+            border-radius: 3px;
+            flex-shrink: 0;
+        }
+
+        /* Toast */
+        #toast {
+            position: fixed;
+            bottom: 22px;
+            right: 22px;
+            background: var(--surface3);
+            border: 1px solid var(--border-em);
+            color: var(--text);
+            font-family: var(--mono);
+            font-size: 12px;
+            padding: 9px 16px;
+            border-radius: 9px;
+            pointer-events: none;
+            opacity: 0;
+            transform: translateY(8px);
+            transition: opacity 0.18s, transform 0.18s;
+            z-index: 9999;
+            max-width: 260px;
+        }
+
+        #toast.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 5px;
+            height: 5px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--surface3);
+            border-radius: 4px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="shell">
+
+        <!-- Header -->
+        <header>
+            <div class="logo-mark">⌥</div>
+            <h1>Undo / Redo History Manager</h1>
+            <span class="sub">LIFO Stack Demo &nbsp;·&nbsp; text editor module</span>
+        </header>
+
+        <!-- Main -->
+        <div class="main">
+
+            <!-- Editor -->
+            <div class="editor-col">
+                <div class="toolbar">
+                    <button class="btn btn-undo" id="undoBtn" disabled>
+                        <svg viewBox="0 0 24 24">
+                            <polyline points="1 4 1 10 7 10" />
+                            <path d="M3.51 15a9 9 0 1 0 .49-4.5" />
+                        </svg>
+                        Undo
+                    </button>
+                    <button class="btn btn-redo" id="redoBtn" disabled>
+                        <svg viewBox="0 0 24 24">
+                            <polyline points="23 4 23 10 17 10" />
+                            <path d="M20.49 15a9 9 0 1 1-.49-4.5" />
+                        </svg>
+                        Redo
+                    </button>
+                    <div class="sep"></div>
+                    <button class="btn btn-snapshot" id="snapshotBtn">
+                        <svg viewBox="0 0 24 24">
+                            <path
+                                d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                            <circle cx="12" cy="13" r="4" />
+                        </svg>
+                        Snapshot
+                    </button>
+                    <div class="sep"></div>
+                    <button class="btn btn-clear" id="clearBtn">
+                        <svg viewBox="0 0 24 24">
+                            <polyline points="3 6 5 6 21 6" />
+                            <path d="M19 6l-1 14H6L5 6" />
+                            <path d="M10 11v6M14 11v6" />
+                            <path d="M9 6V4h6v2" />
+                        </svg>
+                        Clear history
+                    </button>
+
+                    <div class="kbd-hint">
+                        <span class="kbd-pill"><span class="kbd">Ctrl</span><span class="kbd">Z</span> undo</span>
+                        <span class="kbd-pill"><span class="kbd">Ctrl</span><span class="kbd">Y</span> redo</span>
+                        <span class="kbd-pill"><span class="kbd">Ctrl</span><span class="kbd">S</span> snap</span>
+                    </div>
+                </div>
+
+                <div class="editor-wrap">
+                    <div class="line-nums" id="lineNums"></div>
+                    <textarea id="editor"
+                        placeholder="Start typing here… every keystroke is tracked automatically.&#10;&#10;Try: type something → Undo a few times → Redo → type again.&#10;Notice how typing after undo wipes the redo stack (branch kill).&#10;&#10;Use Ctrl+S or the Snapshot button to pin a state manually."></textarea>
+                </div>
+
+                <div class="status-bar">
+                    <div class="status-dot" id="statusDot"></div>
+                    <span class="status-msg" id="statusMsg">No changes yet</span>
+                    <span class="chars" id="charCount">0 chars &nbsp;·&nbsp; 1 line</span>
+                </div>
+            </div>
+
+            <!-- Sidebar -->
+            <div class="sidebar">
+
+                <!-- History Stack -->
+                <div class="pane">
+                    <div class="pane-header">
+                        <span class="pane-title">
+                            <span class="dot-color" style="background:var(--purple)"></span>
+                            History stack
+                        </span>
+                        <span class="pane-badge" id="stackCount">0 states</span>
+                    </div>
+                    <div class="stack-list" id="stackList">
+                        <div class="empty-note">No history yet.<br />Start typing to build the stack.</div>
+                    </div>
+                </div>
+
+                <!-- Visualizer -->
+                <div class="pane">
+                    <div class="pane-header">
+                        <span class="pane-title">
+                            <span class="dot-color" style="background:var(--teal)"></span>
+                            Stack visualizer
+                        </span>
+                    </div>
+                    <div class="viz-section">
+                        <div class="viz-row">
+                            <span class="viz-label">undo[ ]</span>
+                            <div class="viz-track" id="vizUndo"><span class="viz-empty">empty</span></div>
+                        </div>
+                        <div class="viz-row">
+                            <span class="viz-label">current</span>
+                            <div class="viz-track" id="vizCurrent"><span class="viz-empty">—</span></div>
+                        </div>
+                        <div class="viz-row">
+                            <span class="viz-label">redo[ ]</span>
+                            <div class="viz-track" id="vizRedo"><span class="viz-empty">empty</span></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Stats -->
+                <div class="pane">
+                    <div class="pane-header">
+                        <span class="pane-title">
+                            <span class="dot-color" style="background:var(--amber)"></span>
+                            Stats
+                        </span>
+                    </div>
+                    <div class="stats-grid">
+                        <div class="stat-card stat-undo">
+                            <div class="stat-val" id="sUndo">0</div>
+                            <div class="stat-lbl">Undo depth</div>
+                        </div>
+                        <div class="stat-card stat-redo">
+                            <div class="stat-val" id="sRedo">0</div>
+                            <div class="stat-lbl">Redo depth</div>
+                        </div>
+                        <div class="stat-card stat-snap">
+                            <div class="stat-val" id="sSnap">0</div>
+                            <div class="stat-lbl">Snapshots</div>
+                        </div>
+                        <div class="stat-card stat-ops">
+                            <div class="stat-val" id="sOps">0</div>
+                            <div class="stat-lbl">Operations</div>
+                        </div>
+                    </div>
+                </div>
+
+            </div><!-- /sidebar -->
+        </div><!-- /main -->
+
+        <!-- Footer -->
+        <footer>
+            <span>LIFO: Last In, First Out</span>
+            <span class="legend"><span class="lswatch"
+                    style="background:var(--purple-dim);border:1px solid rgba(139,124,246,.4)"></span> undo stack</span>
+            <span class="legend"><span class="lswatch" style="background:var(--purple)"></span> current state</span>
+            <span class="legend"><span class="lswatch"
+                    style="background:var(--teal-dim);border:1px solid rgba(45,212,191,.4)"></span> redo stack</span>
+            <span style="margin-left:auto">History capped at 40 states</span>
+        </footer>
+
+    </div>
+
+    <div id="toast"></div>
+
+    <script>
+        (function () {
+            // ── Constants ────────────────────────────────────────────────
+            const MAX_HISTORY = 40;
+            const DEBOUNCE_MS = 550;
+
+            // ── State ────────────────────────────────────────────────────
+            let undoStack = [];
+            let redoStack = [];
+            let currentState = '';
+            let totalSnapshots = 0;
+            let totalOps = 0;
+            let debounceTimer = null;
+
+            // ── DOM Refs ─────────────────────────────────────────────────
+            const editor = document.getElementById('editor');
+            const undoBtn = document.getElementById('undoBtn');
+            const redoBtn = document.getElementById('redoBtn');
+            const snapBtn = document.getElementById('snapshotBtn');
+            const clearBtn = document.getElementById('clearBtn');
+            const stackList = document.getElementById('stackList');
+            const stackCount = document.getElementById('stackCount');
+            const statusDot = document.getElementById('statusDot');
+            const statusMsg = document.getElementById('statusMsg');
+            const charCount = document.getElementById('charCount');
+            const vizUndo = document.getElementById('vizUndo');
+            const vizCurrent = document.getElementById('vizCurrent');
+            const vizRedo = document.getElementById('vizRedo');
+            const lineNums = document.getElementById('lineNums');
+            const toast = document.getElementById('toast');
+            const sUndo = document.getElementById('sUndo');
+            const sRedo = document.getElementById('sRedo');
+            const sSnap = document.getElementById('sSnap');
+            const sOps = document.getElementById('sOps');
+
+            // ── Toast ────────────────────────────────────────────────────
+            let toastTimer;
+            function showToast(msg) {
+                toast.textContent = msg;
+                toast.classList.add('show');
+                clearTimeout(toastTimer);
+                toastTimer = setTimeout(() => toast.classList.remove('show'), 1800);
+            }
+
+            // ── Core LIFO Stack Operations ───────────────────────────────
+            function pushSnapshot(value) {
+                if (value === currentState) return;
+                if (undoStack.length >= MAX_HISTORY) undoStack.shift();
+                undoStack.push(currentState);
+                redoStack = [];           // branching: new edit kills the future
+                currentState = value;
+                totalSnapshots++;
+                totalOps++;
+                render();
+            }
+
+            function undo() {
+                if (!undoStack.length) { showToast('Nothing to undo'); return; }
+                redoStack.push(currentState);
+                currentState = undoStack.pop();
+                editor.value = currentState;
+                totalOps++;
+                showToast('↩  Undo');
+                syncLineNums();
+                render();
+            }
+
+            function redo() {
+                if (!redoStack.length) { showToast('Nothing to redo'); return; }
+                undoStack.push(currentState);
+                currentState = redoStack.pop();
+                editor.value = currentState;
+                totalOps++;
+                showToast('↪  Redo');
+                syncLineNums();
+                render();
+            }
+
+            function manualSnapshot() {
+                const val = editor.value;
+                if (val === currentState) { showToast('Already saved'); return; }
+                pushSnapshot(val);
+                showToast('📸  Snapshot saved');
+            }
+
+            function clearHistory() {
+                undoStack = [];
+                redoStack = [];
+                totalOps++;
+                showToast('History cleared');
+                render();
+            }
+
+            // ── Helpers ──────────────────────────────────────────────────
+            function truncate(s, n = 30) {
+                if (s === '' || s == null) return '(empty)';
+                const flat = s.replace(/\n/g, ' ↵ ');
+                return flat.length > n ? flat.slice(0, n) + '…' : flat;
+            }
+
+            function esc(s) {
+                return String(s)
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;');
+            }
+
+            // ── Render ───────────────────────────────────────────────────
+            function render() {
+                const hasUndo = undoStack.length > 0;
+                const hasRedo = redoStack.length > 0;
+
+                undoBtn.disabled = !hasUndo;
+                redoBtn.disabled = !hasRedo;
+
+                // Status bar
+                const lines = editor.value.split('\n').length;
+                const chars = editor.value.length;
+                charCount.textContent = chars + ' chars · ' + lines + ' line' + (lines !== 1 ? 's' : '');
+                if (hasUndo) {
+                    statusDot.className = 'status-dot changed';
+                    statusMsg.textContent = undoStack.length + ' undo step' + (undoStack.length > 1 ? 's' : '') + ' available';
+                } else {
+                    statusDot.className = 'status-dot saved';
+                    statusMsg.textContent = 'All caught up';
+                }
+
+                // Stats
+                sUndo.textContent = undoStack.length;
+                sRedo.textContent = redoStack.length;
+                sSnap.textContent = totalSnapshots;
+                sOps.textContent = totalOps;
+
+                // Stack count badge
+                const total = undoStack.length + 1 + redoStack.length;
+                stackCount.textContent = total + ' state' + (total !== 1 ? 's' : '');
+
+                renderStackList();
+                renderViz();
+            }
+
+            function renderStackList() {
+                const isEmpty = !undoStack.length && !redoStack.length && !currentState;
+                if (isEmpty) {
+                    stackList.innerHTML = '<div class="empty-note">No history yet.<br/>Start typing to build the stack.</div>';
+                    return;
+                }
+
+                let html = '';
+
+                // Show undo items newest-first (top of stack first)
+                [...undoStack].reverse().forEach((s, i) => {
+                    html += `<div class="stack-item undo-item">
+        <span class="item-arrow">○</span>
+        <span class="item-preview">${esc(truncate(s))}</span>
+        <span class="item-tag tag-undo">undo</span>
+      </div>`;
+                });
+
+                // Current
+                html += `<div class="stack-item current">
+      <span class="item-arrow">▶</span>
+      <span class="item-preview" style="color:var(--text)">${esc(truncate(currentState))}</span>
+      <span class="item-tag tag-current">current</span>
+    </div>`;
+
+                // Redo items
+                [...redoStack].reverse().forEach((s) => {
+                    html += `<div class="stack-item redo-item">
+        <span class="item-arrow">○</span>
+        <span class="item-preview">${esc(truncate(s))}</span>
+        <span class="item-tag tag-redo">redo</span>
+      </div>`;
+                });
+
+                stackList.innerHTML = html;
+            }
+
+            function renderViz() {
+                const MAX_VIZ = 10;
+
+                function makeBlocks(arr, cls, reverseOrder) {
+                    if (!arr.length) return '<span class="viz-empty">empty</span>';
+                    const shown = reverseOrder ? [...arr].reverse().slice(0, MAX_VIZ) : arr.slice(-MAX_VIZ);
+                    return shown.map((s, i) => {
+                        const w = Math.max(18, Math.min(44, 12 + Math.sqrt(s.length) * 3));
+                        return `<div class="viz-block ${cls}" style="width:${Math.round(w)}px" title="${esc(truncate(s, 50))}">${i + 1}</div>`;
+                    }).join('');
+                }
+
+                vizUndo.innerHTML = makeBlocks(undoStack, 'vb-undo', true);
+                vizCurrent.innerHTML = `<div class="viz-block vb-current" style="width:${Math.max(24, Math.min(54, 12 + Math.sqrt(currentState.length) * 3))}px" title="${esc(truncate(currentState, 50))}">NOW</div>`;
+                vizRedo.innerHTML = makeBlocks(redoStack, 'vb-redo', false);
+            }
+
+            function syncLineNums() {
+                const lines = editor.value.split('\n').length;
+                let html = '';
+                for (let i = 1; i <= Math.max(lines, 1); i++) {
+                    html += `<div class="line-num">${i}</div>`;
+                }
+                lineNums.innerHTML = html;
+            }
+
+            // ── Event Listeners ──────────────────────────────────────────
+            editor.addEventListener('input', () => {
+                syncLineNums();
+                charCount.textContent = editor.value.length + ' chars · ' + editor.value.split('\n').length + ' lines';
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(() => pushSnapshot(editor.value), DEBOUNCE_MS);
+            });
+
+            editor.addEventListener('scroll', () => {
+                lineNums.style.transform = `translateY(-${editor.scrollTop}px)`;
+            });
+
+            editor.addEventListener('keydown', (e) => {
+                const mod = e.ctrlKey || e.metaKey;
+                if (mod && e.key === 'z') { e.preventDefault(); undo(); }
+                if (mod && (e.key === 'y' || (e.shiftKey && e.key === 'Z'))) { e.preventDefault(); redo(); }
+                if (mod && e.key === 's') { e.preventDefault(); manualSnapshot(); }
+                // Tab support
+                if (e.key === 'Tab') {
+                    e.preventDefault();
+                    const s = editor.selectionStart, end = editor.selectionEnd;
+                    editor.value = editor.value.slice(0, s) + '  ' + editor.value.slice(end);
+                    editor.selectionStart = editor.selectionEnd = s + 2;
+                    syncLineNums();
+                }
+            });
+
+            undoBtn.addEventListener('click', undo);
+            redoBtn.addEventListener('click', redo);
+            snapBtn.addEventListener('click', manualSnapshot);
+            clearBtn.addEventListener('click', clearHistory);
+
+            // ── Init ─────────────────────────────────────────────────────
+            syncLineNums();
+            render();
+
+        })();
+    </script>
+</body>
+
+</html>
